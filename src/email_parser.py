@@ -19,6 +19,11 @@ class EmailParseError(Exception):
     pass
 
 
+class DeniedTransactionError(Exception):
+    """Error raised when a transaction is denied and should be skipped."""
+    pass
+
+
 def detect_email_type(html_content: str, subject: str) -> str:
     """
     Detect the type of BCR email.
@@ -67,6 +72,7 @@ def parse_bcr_email(html_content: str, subject: str = "") -> Dict[str, str]:
 
     Raises:
         EmailParseError: If email cannot be parsed
+        DeniedTransactionError: If transaction was denied (should be skipped)
     """
     if not html_content:
         raise EmailParseError("HTML content cannot be empty")
@@ -179,7 +185,9 @@ def _parse_sinpe_email(html_content: str, email_type: str) -> Optional[Dict[str,
         "valor": valor,
         "concepto_source": concepto_source,
         "detalle": detalle,
-        "referencia": referencia
+        "referencia": referencia,
+        "moneda": "COLON COSTA RICA",  # SINPE is always in colones
+        "tarjeta": "3822"  # Fixed SINPE account identifier
     }
 
 
@@ -192,12 +200,16 @@ def _parse_card_email(html_content: str) -> Optional[Dict[str, str]]:
 
     Returns:
         Unified transaction dictionary or None
+
+    Raises:
+        DeniedTransactionError: If the transaction was denied
     """
     # Try parsing with BeautifulSoup first (HTML table format)
+    # DeniedTransactionError will propagate up (don't fall back for denied transactions)
     result = _parse_card_from_html(html_content)
 
     if not result:
-        # Fallback to plain text parsing
+        # Fallback to plain text parsing only if HTML parsing failed (not for denied)
         result = _parse_card_from_plain_text(html_content)
 
     return result
@@ -214,6 +226,12 @@ def _parse_card_from_html(html_content: str) -> Optional[Dict[str, str]]:
         Unified transaction dictionary or None
     """
     soup = BeautifulSoup(html_content, 'html.parser')
+
+    # Extract last 4 digits of card number from pattern like "****-****-****-9282"
+    tarjeta = ""
+    card_match = re.search(r'\*{4}-\*{4}-\*{4}-(\d{4})', html_content)
+    if card_match:
+        tarjeta = card_match.group(1)
 
     # Find all tbody sections
     tbodies = soup.find_all('tbody')
@@ -235,13 +253,14 @@ def _parse_card_from_html(html_content: str) -> Optional[Dict[str, str]]:
             date_str = values[0]  # DD/MM/YYYY HH:MM:SS
             reference = values[2]
             amount = values[3]
+            moneda = values[4]  # e.g., "COLON COSTA RICA", "US DOLLAR"
             merchant = values[5]
             estado = values[6]  # Transaction status
 
             # Skip denied transactions (Estado: Negada)
             if estado.lower() == "negada":
                 logger.info(f"Skipping denied card transaction: {merchant}, amount: {amount}")
-                return None
+                raise DeniedTransactionError(f"Transaction denied: {merchant}")
 
             # Card transactions are always negative (money out)
             valor = f"-{amount}"
@@ -252,7 +271,9 @@ def _parse_card_from_html(html_content: str) -> Optional[Dict[str, str]]:
                 "valor": valor,
                 "concepto_source": merchant,  # For AI categorization
                 "detalle": merchant,
-                "referencia": reference
+                "referencia": reference,
+                "moneda": moneda,
+                "tarjeta": tarjeta
             }
 
     return None
@@ -275,7 +296,13 @@ def _parse_card_from_plain_text(html_content: str) -> Optional[Dict[str, str]]:
     # Skip denied transactions
     if re.search(r'\bNegada\b', text, re.IGNORECASE):
         logger.info("Skipping denied card transaction (detected in plain text)")
-        return None
+        raise DeniedTransactionError("Transaction denied (detected in plain text)")
+
+    # Extract last 4 digits of card number from pattern like "****-****-****-9282"
+    tarjeta = ""
+    card_match = re.search(r'\*{4}-\*{4}-\*{4}-(\d{4})', html_content)
+    if card_match:
+        tarjeta = card_match.group(1)
 
     # Try to find date pattern: DD/MM/YYYY HH:MM:SS
     date_pattern = r'(\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}:\d{2})'
@@ -304,7 +331,9 @@ def _parse_card_from_plain_text(html_content: str) -> Optional[Dict[str, str]]:
         "valor": f"-{amount}",
         "concepto_source": "",
         "detalle": "",
-        "referencia": reference
+        "referencia": reference,
+        "moneda": "",  # Not reliably available in plain text fallback
+        "tarjeta": tarjeta
     }
 
 
