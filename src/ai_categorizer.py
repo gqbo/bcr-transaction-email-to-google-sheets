@@ -1,13 +1,14 @@
 """
 AI-powered merchant categorization using Google Gemini.
 
-This module uses Gemini 2.0 Flash to categorize merchants
+This module uses Gemini 2.5 Flash to categorize merchants
 into predefined spending categories.
 """
 
 import os
 import logging
-import time
+import json
+import re
 from typing import Optional
 
 import google.generativeai as genai
@@ -16,15 +17,13 @@ from config.categories import (
     VALID_CATEGORIES,
     validate_category,
     get_category_by_keyword,
-    build_categorization_prompt
+    build_batch_categorization_prompt
 )
 
 logger = logging.getLogger(__name__)
 
 # Gemini model configuration
-MODEL_NAME = "models/gemini-2.5-flash-lite"
-MAX_RETRIES = 3
-RETRY_DELAY = 2  # seconds
+MODEL_NAME = "models/gemini-2.5-flash"
 
 # Module-level model instance (initialized lazily)
 _model: Optional[genai.GenerativeModel] = None
@@ -56,10 +55,9 @@ def _get_model() -> genai.GenerativeModel:
 
 def categorize_merchant(merchant: str) -> str:
     """
-    Categorize a merchant using Gemini AI.
+    Categorize a single merchant.
 
-    First attempts keyword-based categorization for common merchants,
-    then falls back to AI categorization.
+    This is a convenience wrapper around batch_categorize for single merchants.
 
     Args:
         merchant: Merchant name to categorize
@@ -72,68 +70,8 @@ def categorize_merchant(merchant: str) -> str:
         logger.warning("Empty merchant name provided")
         return "Uncategorized"
 
-    # Try keyword-based categorization first (faster, no API call)
-    keyword_category = get_category_by_keyword(merchant)
-    if keyword_category:
-        logger.info(f"Categorized '{merchant}' via keyword: {keyword_category}")
-        return keyword_category
-
-    # Fall back to AI categorization
-    return _categorize_with_ai(merchant)
-
-
-def _categorize_with_ai(merchant: str) -> str:
-    """
-    Categorize merchant using Gemini AI with retry logic.
-
-    Args:
-        merchant: Merchant name to categorize
-
-    Returns:
-        Category name or "Uncategorized" on failure
-    """
-    prompt = build_categorization_prompt(merchant)
-
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            model = _get_model()
-
-            # Generate with temperature=0 for deterministic results
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0,
-                    max_output_tokens=50
-                )
-            )
-
-            category = response.text.strip()
-
-            # Validate the returned category
-            if validate_category(category):
-                logger.info(f"AI categorized '{merchant}' as: {category}")
-                return category
-            else:
-                logger.warning(
-                    f"AI returned invalid category '{category}' for '{merchant}'"
-                )
-                # Try to find closest match
-                closest = _find_closest_category(category)
-                if closest:
-                    logger.info(f"Using closest match: {closest}")
-                    return closest
-                return "Uncategorized"
-
-        except Exception as e:
-            logger.error(
-                f"Attempt {attempt}/{MAX_RETRIES} failed for '{merchant}': {e}"
-            )
-            if attempt < MAX_RETRIES:
-                time.sleep(RETRY_DELAY * attempt)  # Exponential backoff
-            continue
-
-    logger.error(f"All attempts failed to categorize '{merchant}'")
-    return "Uncategorized"
+    results = batch_categorize([merchant])
+    return results.get(merchant, "Uncategorized")
 
 
 def _find_closest_category(category: str) -> Optional[str]:
@@ -162,9 +100,126 @@ def _find_closest_category(category: str) -> Optional[str]:
     return None
 
 
+def _extract_partial_json(text: str) -> dict[str, str]:
+    """
+    Extract valid key-value pairs from a potentially truncated JSON response.
+
+    Args:
+        text: Potentially malformed JSON string
+
+    Returns:
+        Dictionary of successfully extracted merchant->category pairs
+    """
+    results = {}
+    # Pattern to match complete "key": "value" pairs
+    pattern = r'"([^"]+)"\s*:\s*"([^"]+)"'
+    matches = re.findall(pattern, text)
+
+    for merchant, category in matches:
+        if validate_category(category):
+            results[merchant] = category
+            logger.info(f"Recovered from partial JSON: '{merchant}' -> '{category}'")
+        else:
+            closest = _find_closest_category(category)
+            if closest:
+                results[merchant] = closest
+                logger.info(f"Recovered with closest match: '{merchant}' -> '{closest}'")
+
+    return results
+
+
+def _batch_categorize_with_ai(merchants: list[str]) -> dict[str, str]:
+    """
+    Categorize multiple merchants in a single API call.
+
+    Args:
+        merchants: List of merchant names to categorize
+
+    Returns:
+        Dictionary mapping merchant names to categories.
+        On failure, all merchants are mapped to "Uncategorized".
+    """
+    if not merchants:
+        return {}
+
+    prompt = build_batch_categorization_prompt(merchants)
+
+    try:
+        model = _get_model()
+
+        # Use higher token limit for batch responses
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.types.GenerationConfig(
+                temperature=0,
+                max_output_tokens=10000
+            )
+        )
+
+        # Handle multi-part responses properly
+        if response.candidates and response.candidates[0].content.parts:
+            response_text = response.candidates[0].content.parts[0].text.strip()
+        else:
+            raise ValueError("Empty or blocked response from Gemini")
+
+        # Parse JSON response
+        logger.debug(f"Raw Gemini response: {response_text}")
+
+        # Remove markdown code block if present
+        if "```" in response_text:
+            # Extract content between ``` markers
+            json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', response_text)
+            if json_match:
+                response_text = json_match.group(1).strip()
+            else:
+                # Try removing just the opening ```
+                response_text = re.sub(r'^```(?:json)?\s*', '', response_text)
+                response_text = re.sub(r'\s*```$', '', response_text)
+
+        # Clean up common JSON issues
+        response_text = response_text.strip()
+
+        try:
+            categories_map = json.loads(response_text)
+        except json.JSONDecodeError as e:
+            logger.warning(f"JSON parse failed, attempting partial recovery: {response_text[:200]}")
+            # Try to extract valid key-value pairs from truncated JSON
+            categories_map = _extract_partial_json(response_text)
+            if not categories_map:
+                logger.error(f"Could not recover any data from response")
+                raise ValueError(f"Invalid JSON from Gemini: {e}")
+
+        # Validate and build results
+        results = {}
+        for merchant in merchants:
+            category = categories_map.get(merchant, "Uncategorized")
+            if validate_category(category):
+                results[merchant] = category
+                logger.info(f"Batch AI categorized '{merchant}' as: {category}")
+            else:
+                # Try to find closest match
+                closest = _find_closest_category(category)
+                if closest:
+                    results[merchant] = closest
+                    logger.info(f"Batch AI: '{merchant}' -> closest match: {closest}")
+                else:
+                    results[merchant] = "Uncategorized"
+                    logger.warning(f"Batch AI: invalid category '{category}' for '{merchant}'")
+
+        return results
+
+    except Exception as e:
+        logger.error(f"Batch categorization failed: {e}")
+        # Return all as Uncategorized on failure
+        return {merchant: "Uncategorized" for merchant in merchants}
+
+
 def batch_categorize(merchants: list[str]) -> dict[str, str]:
     """
-    Categorize multiple merchants.
+    Categorize multiple merchants efficiently.
+
+    First applies keyword matching (no API call), then batches remaining
+    merchants into a single AI API call.
 
     Args:
         merchants: List of merchant names
@@ -173,6 +228,25 @@ def batch_categorize(merchants: list[str]) -> dict[str, str]:
         Dictionary mapping merchant names to categories
     """
     results = {}
+    needs_ai = []
+
+    # First pass: keyword matching (free, no API call)
     for merchant in merchants:
-        results[merchant] = categorize_merchant(merchant)
+        if not merchant:
+            results[merchant] = "Uncategorized"
+            continue
+
+        keyword_category = get_category_by_keyword(merchant)
+        if keyword_category:
+            logger.info(f"Categorized '{merchant}' via keyword: {keyword_category}")
+            results[merchant] = keyword_category
+        else:
+            needs_ai.append(merchant)
+
+    # Second pass: batch AI call for remaining merchants
+    if needs_ai:
+        logger.info(f"Batch categorizing {len(needs_ai)} merchants via AI")
+        ai_results = _batch_categorize_with_ai(needs_ai)
+        results.update(ai_results)
+
     return results
