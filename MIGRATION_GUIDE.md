@@ -278,7 +278,7 @@ import os
 
 # Configure Gemini (once at startup)
 genai.configure(api_key=os.environ['GEMINI_API_KEY'])
-model = genai.GenerativeModel('models/gemini-2.0-flash-exp')
+model = genai.GenerativeModel('models/gemini-2.5-flash-lite')
 
 def categorize_merchant(merchant: str) -> str:
     """

@@ -291,8 +291,8 @@ Reply with ONLY the exact category name.
 
 **Model Configuration**:
 ```python
-model_name = "models/gemini-2.0-flash-exp"
-# Note: Use 2.0 flash for speed and cost efficiency
+model_name = "models/gemini-2.5-flash-lite"
+# Note: Use 2.5 flash lite for speed and cost efficiency
 # Temperature: 0 (deterministic)
 ```
 

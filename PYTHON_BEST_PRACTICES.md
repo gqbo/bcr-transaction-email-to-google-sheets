@@ -728,7 +728,7 @@ import google.generativeai as genai
 
 # ✅ GOOD: Configure once, use many times
 genai.configure(api_key=os.environ['GEMINI_API_KEY'])
-model = genai.GenerativeModel('models/gemini-2.0-flash-exp')
+model = genai.GenerativeModel('models/gemini-2.5-flash-lite')
 
 def categorize_with_ai(merchant: str) -> str:
     """Categorize merchant using Gemini."""
