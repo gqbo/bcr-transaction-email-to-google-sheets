@@ -22,7 +22,7 @@ MAX_RETRIES = 3
 RETRY_DELAY = 2  # seconds
 
 # Column headers for new sheets
-HEADERS = ["Fecha", "No.Referencia", "Monto", "Comercio", "Categoria"]
+HEADERS = ["Dia", "Valor", "Concepto", "Detalle", "Referencia"]
 
 
 class SheetsWriter:
@@ -210,14 +210,18 @@ class SheetsWriter:
         and creates the sheet if it doesn't exist.
 
         Args:
-            transaction: Transaction dictionary from email parser
-            category: Category from AI categorizer
+            transaction: Transaction dictionary from email parser with fields:
+                - dia: Date and time (DD/MM/YYYY HH:MM:SS)
+                - valor: Amount with sign (negative for expenses)
+                - detalle: Merchant name or "Cliente / Motivo"
+                - referencia: Reference number
+            category: Category from AI categorizer (Concepto)
 
         Returns:
             Tuple of (success: bool, row_number: Optional[int])
         """
         # Determine sheet name from transaction date
-        date_str = transaction.get('date', '')
+        date_str = transaction.get('dia', '')
         sheet_name = self._get_sheet_name_from_date(date_str)
 
         # Ensure the sheet exists (creates with headers if not)
@@ -226,13 +230,13 @@ class SheetsWriter:
             return False, None
 
         # Build row data matching column order:
-        # Fecha | No.Referencia | Monto | Comercio | Categoria
+        # Dia | Valor | Concepto | Detalle | Referencia
         row = [
-            date_str,                          # Fecha
-            transaction.get('reference', ''),  # No.Referencia
-            transaction.get('amount', ''),     # Monto
-            transaction.get('merchant', ''),   # Comercio
-            category                           # Categoria
+            date_str,                            # Dia
+            transaction.get('valor', ''),        # Valor (with sign)
+            category,                            # Concepto (AI category)
+            transaction.get('detalle', ''),      # Detalle
+            transaction.get('referencia', '')    # Referencia
         ]
 
         return self._append_row(row, sheet_name)
