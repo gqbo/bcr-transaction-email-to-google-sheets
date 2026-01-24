@@ -17,8 +17,8 @@ from googleapiclient.errors import HttpError
 
 logger = logging.getLogger(__name__)
 
-# Search query for BCR transaction emails
-BCR_SEARCH_QUERY = 'subject:"Notificación de Transacciones BCR" is:unread'
+# Search query for BCR transaction emails (card transactions and SINPE)
+BCR_SEARCH_QUERY = '(subject:"Notificación de Transacciones BCR" OR subject:"SINPEMOVIL - Notificación de transacción realizada") is:unread'
 
 
 class GmailChecker:
