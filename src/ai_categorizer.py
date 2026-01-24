@@ -25,7 +25,7 @@ from config.categories import (
 logger = logging.getLogger(__name__)
 
 # Gemini model configuration
-MODEL_NAME = "models/gemini-2.5-flash"
+MODEL_NAME = "models/gemini-2.5-flash-lite"
 
 # Module-level model instance (initialized lazily)
 _model: Optional[genai.GenerativeModel] = None
