@@ -236,6 +236,12 @@ def _parse_card_from_html(html_content: str) -> Optional[Dict[str, str]]:
             reference = values[2]
             amount = values[3]
             merchant = values[5]
+            estado = values[6]  # Transaction status
+
+            # Skip denied transactions (Estado: Negada)
+            if estado.lower() == "negada":
+                logger.info(f"Skipping denied card transaction: {merchant}, amount: {amount}")
+                return None
 
             # Card transactions are always negative (money out)
             valor = f"-{amount}"
@@ -265,6 +271,11 @@ def _parse_card_from_plain_text(html_content: str) -> Optional[Dict[str, str]]:
     soup = BeautifulSoup(html_content, 'html.parser')
     text = soup.get_text()
     text = _clean_text(text)
+
+    # Skip denied transactions
+    if re.search(r'\bNegada\b', text, re.IGNORECASE):
+        logger.info("Skipping denied card transaction (detected in plain text)")
+        return None
 
     # Try to find date pattern: DD/MM/YYYY HH:MM:SS
     date_pattern = r'(\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}:\d{2})'
