@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.gmail_checker import GmailChecker
-from src.email_parser import parse_bcr_email, EmailParseError
+from src.email_parser import parse_bcr_email, EmailParseError, DeniedTransactionError
 from src.ai_categorizer import categorize_merchant, batch_categorize
 from src.sheets_writer import SheetsWriter
 
@@ -111,6 +111,11 @@ def process_email(
         else:
             return False, f"Failed to write to Sheets: {detalle}"
 
+    except DeniedTransactionError as e:
+        logger.info(f"  Skipped (denied): {e}")
+        gmail.mark_as_read(email_id)
+        return True, f"Skipped (denied): {e}"
+
     except EmailParseError as e:
         logger.error(f"  Parse error: {e}")
         return False, f"Parse error: {e}"
@@ -175,6 +180,10 @@ def main():
                 tx_type = transaction.get('type', 'unknown')
                 detalle = transaction.get('detalle', 'Unknown')
                 logger.info(f"  [{i}/{len(emails)}] Parsed ({tx_type}): {detalle}")
+            except DeniedTransactionError as e:
+                # Denied transactions should be marked as read but not processed
+                logger.info(f"  [{i}/{len(emails)}] Skipped (denied): {e}")
+                gmail.mark_as_read(email_id)
             except EmailParseError as e:
                 parse_errors.append((email_id, str(e)))
                 logger.error(f"  [{i}/{len(emails)}] Parse error: {e}")
