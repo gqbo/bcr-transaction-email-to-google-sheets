@@ -334,6 +334,84 @@ class SheetsWriter:
             return int(match.group(1))
         return None
 
+    def _batch_append_rows(
+        self,
+        rows: List[List[str]],
+        sheet_name: str
+    ) -> Tuple[bool, Optional[int]]:
+        """
+        Append multiple rows to a sheet in a single API call.
+
+        Args:
+            rows: List of row data (each row is a list of cell values)
+            sheet_name: Name of the sheet to append to (e.g., '01/2026')
+
+        Returns:
+            Tuple of (success: bool, starting_row_number: Optional[int])
+        """
+        if not rows:
+            return True, None
+
+        sheet_range = f"'{sheet_name}'!{self.sheet_range}"
+
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                body = {'values': rows}
+
+                result = self.service.spreadsheets().values().append(
+                    spreadsheetId=self.spreadsheet_id,
+                    range=sheet_range,
+                    valueInputOption='RAW',
+                    insertDataOption='INSERT_ROWS',
+                    body=body
+                ).execute()
+
+                updates = result.get('updates', {})
+                updated_rows = updates.get('updatedRows', 0)
+                updated_range = updates.get('updatedRange', '')
+
+                if updated_rows > 0:
+                    start_row = self._extract_row_number(updated_range)
+                    logger.info(
+                        f"Batch appended {updated_rows} rows to '{sheet_name}' "
+                        f"starting at row {start_row}"
+                    )
+                    return True, start_row
+
+                logger.warning("Batch append succeeded but no rows reported as updated")
+                return True, None
+
+            except HttpError as e:
+                status_code = e.resp.status
+                if status_code == 403:
+                    logger.error("Permission denied - check Sheet sharing settings")
+                    return False, None
+                elif status_code == 404:
+                    logger.error(f"Spreadsheet not found: {self.spreadsheet_id}")
+                    return False, None
+                elif status_code == 429:
+                    logger.warning(f"Rate limited, attempt {attempt}/{MAX_RETRIES}")
+                    if attempt < MAX_RETRIES:
+                        time.sleep(RETRY_DELAY * attempt)
+                        continue
+                else:
+                    logger.error(f"HTTP error {status_code}: {e}")
+
+                if attempt < MAX_RETRIES:
+                    time.sleep(RETRY_DELAY * attempt)
+                    continue
+                return False, None
+
+            except Exception as e:
+                logger.error(f"Unexpected error in batch append: {e}")
+                if attempt < MAX_RETRIES:
+                    time.sleep(RETRY_DELAY * attempt)
+                    continue
+                return False, None
+
+        logger.error(f"All {MAX_RETRIES} attempts failed for batch append")
+        return False, None
+
     def batch_append(
         self,
         transactions: List[Tuple[Dict[str, str], str]]
@@ -362,6 +440,82 @@ class SheetsWriter:
             f"{failure_count} failed"
         )
         return success_count, failure_count
+
+    def batch_append_transactions(
+        self,
+        transactions_with_emails: List[Tuple[Dict, Dict[str, str], str]]
+    ) -> Tuple[List[Tuple[Dict, Dict[str, str], str]], List[Tuple[Dict, Dict[str, str], str]]]:
+        """
+        Append multiple transactions using true batch API calls (one per sheet).
+
+        Groups transactions by their target sheet (MM/YYYY) and appends
+        all rows for each sheet in a single API call.
+
+        Args:
+            transactions_with_emails: List of (email, transaction, category) tuples
+
+        Returns:
+            Tuple of (succeeded_list, failed_list) where each item is
+            (email, transaction, category)
+        """
+        from collections import defaultdict
+
+        if not transactions_with_emails:
+            return [], []
+
+        # Group transactions by sheet name
+        sheet_groups: Dict[str, List[Tuple[Dict, Dict[str, str], str, List[str]]]] = defaultdict(list)
+
+        for email, transaction, category in transactions_with_emails:
+            date_str = transaction.get('dia', '')
+            sheet_name = self._get_sheet_name_from_date(date_str)
+
+            # Build row data
+            row = [
+                date_str,
+                transaction.get('valor', ''),
+                category,
+                transaction.get('detalle', ''),
+                transaction.get('referencia', ''),
+                transaction.get('moneda', ''),
+                transaction.get('tarjeta', '')
+            ]
+
+            sheet_groups[sheet_name].append((email, transaction, category, row))
+
+        succeeded = []
+        failed = []
+
+        # Process each sheet group
+        for sheet_name, items in sheet_groups.items():
+            # Ensure sheet exists
+            if not self._ensure_sheet_exists(sheet_name):
+                logger.error(f"Failed to ensure sheet '{sheet_name}' exists")
+                for email, transaction, category, _ in items:
+                    failed.append((email, transaction, category))
+                continue
+
+            # Extract rows for batch append
+            rows = [item[3] for item in items]
+
+            # Batch append all rows for this sheet
+            success, start_row = self._batch_append_rows(rows, sheet_name)
+
+            if success:
+                for i, (email, transaction, category, _) in enumerate(items):
+                    row_num = start_row + i if start_row else None
+                    detalle = transaction.get('detalle', 'Unknown')
+                    logger.info(f"  Written to row {row_num}: {detalle} -> {category}")
+                    succeeded.append((email, transaction, category))
+            else:
+                for email, transaction, category, _ in items:
+                    failed.append((email, transaction, category))
+
+        logger.info(
+            f"Batch transactions complete: {len(succeeded)} succeeded, "
+            f"{len(failed)} failed"
+        )
+        return succeeded, failed
 
     def verify_connection(self) -> bool:
         """

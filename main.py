@@ -196,33 +196,38 @@ def main():
             logger.info(f"Batch categorizing {len(concepto_sources)} transaction(s)...")
             categories = batch_categorize(concepto_sources)
 
-        # Phase 3: Write to sheets and mark as read
-        logger.info("Writing to sheets...")
-        processed = 0
-        errors = len(parse_errors)
+        # Phase 3: Batch write to sheets and mark as read
+        logger.info("Writing to sheets (batch mode)...")
         results: List[str] = []
 
-        for email, transaction in parsed_emails:
-            email_id = email.get('id', 'unknown')
-            concepto_source = transaction.get('concepto_source', '')
-            detalle = transaction.get('detalle', 'Unknown')
-            tx_type = transaction.get('type', 'unknown')
-            category = categories.get(concepto_source, 'Uncategorized')
+        # Prepare transactions with emails and categories
+        transactions_with_emails = [
+            (
+                email,
+                transaction,
+                categories.get(transaction.get('concepto_source', ''), 'Uncategorized')
+            )
+            for email, transaction in parsed_emails
+        ]
 
-            try:
-                success, row_num = writer.append_transaction(transaction, category)
-                if success:
-                    logger.info(f"  Written to row {row_num}: {detalle} -> {category}")
-                    gmail.mark_as_read(email_id)
-                    processed += 1
-                    results.append(f"[OK] {tx_type}: {detalle} -> {category}")
-                else:
-                    errors += 1
-                    results.append(f"[ERROR] Failed to write: {detalle}")
-            except Exception as e:
-                errors += 1
-                results.append(f"[ERROR] {detalle}: {e}")
-                logger.error(f"  Error writing {detalle}: {e}")
+        # Batch write all transactions
+        succeeded, failed = writer.batch_append_transactions(transactions_with_emails)
+
+        # Mark succeeded emails as read
+        for email, transaction, category in succeeded:
+            email_id = email.get('id', 'unknown')
+            gmail.mark_as_read(email_id)
+            tx_type = transaction.get('type', 'unknown')
+            detalle = transaction.get('detalle', 'Unknown')
+            results.append(f"[OK] {tx_type}: {detalle} -> {category}")
+
+        # Log failed transactions
+        for email, transaction, category in failed:
+            detalle = transaction.get('detalle', 'Unknown')
+            results.append(f"[ERROR] Failed to write: {detalle}")
+
+        processed = len(succeeded)
+        errors = len(parse_errors) + len(failed)
 
         # Add parse errors to results
         for email_id, error_msg in parse_errors:
