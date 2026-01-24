@@ -1,80 +1,53 @@
 """
 Category definitions for merchant classification.
 
-This module contains all valid categories and keyword rules
-used by the AI categorizer to classify BCR transactions.
+This module loads categories and keyword rules from categories.yaml
+for easy configuration without code changes.
 """
 
+import json
+import logging
+from pathlib import Path
 from typing import Set, Dict, List
 
-# Keyword rules for quick categorization (case-insensitive)
-KEYWORD_RULES: Dict[str, List[str]] = {
-    "Mercado (alimentos, aseo hogar)": [
-        "MXM", "SUPER", "MAS X MENOS", "PRICE SMART", "FRESK MARKET"
-    ],
-    "Combustible": [
-        "SERVICENTRO", "ESTACION"
-    ],
-    "Domicilios/restaurantes": [
-        "SODA", "RESTAURANT", "SUBWAY", "CAFE", "COFEE", "PIZZA"
-    ],
-    "Agua": [
-        "AGUA"
-    ],
-    "Electricidad": [
-        "ELECTRICIDAD", "ICE"
-    ],
-    "Internet": [
-        "INTERNET", "CABLE"
-    ],
-    "Transporte UBER": [
-        "UBER"
-    ],
-    "YouTube Premium": [
-        "YOUTUBE"
-    ],
-    "Chat GPT": [
-        "GPT", "CHATGPT"
-    ],
-    "Plan funerario": [
-        "FUNERARIO"
-    ],
-    "Hipoteca Casa": [
-        "HIPOTECA", "VIVIENDA"
-    ],
-    "Plan celular": [
-        "CELULAR", "KOLBI", "PLAN"
-    ],
-}
+import yaml
 
-# Complete list of all valid categories
-VALID_CATEGORIES: Set[str] = {
-    "Agua",
-    "Agua Desamparados",
-    "Chat GPT",
-    "Combustible",
-    "Consultas médicas",
-    "Diversión",
-    "Domicilios/restaurantes",
-    "Educación",
-    "Electricidad",
-    "Fruta/Snacks/Café",
-    "Hipoteca Casa",
-    "Internet",
-    "Mantenimiento vehículo",
-    "Mantenimiento hogar",
-    "Medicamentos",
-    "Mercado (alimentos, aseo hogar)",
-    "Mesada Gabriel",
-    "Mesada Oscar",
-    "Peluquería",
-    "Plan celular",
-    "Plan funerario",
-    "Transporte UBER",
-    "Vacaciones",
-    "Vestuario (ropa/zapato/accesorios)",
-    "YouTube Premium",
-}
+logger = logging.getLogger(__name__)
+
+# Load configuration from YAML file
+_CONFIG_FILE = Path(__file__).parent / "categories.yaml"
+
+
+def _load_config() -> dict:
+    """
+    Load categories configuration from YAML file.
+
+    Returns:
+        Dictionary with 'categories' and 'keyword_rules' keys
+
+    Raises:
+        FileNotFoundError: If categories.yaml doesn't exist
+        yaml.YAMLError: If YAML is malformed
+    """
+    if not _CONFIG_FILE.exists():
+        raise FileNotFoundError(
+            f"Configuration file not found: {_CONFIG_FILE}\n"
+            "Please create categories.yaml in the config directory."
+        )
+
+    with open(_CONFIG_FILE, 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f)
+
+    logger.info(f"Loaded {len(config.get('categories', []))} categories from {_CONFIG_FILE.name}")
+    return config
+
+
+# Load configuration at module import time
+_config = _load_config()
+
+# Public variables (same interface as before)
+KEYWORD_RULES: Dict[str, List[str]] = _config.get('keyword_rules', {})
+VALID_CATEGORIES: Set[str] = set(_config.get('categories', []))
 
 
 def validate_category(category: str) -> bool:
@@ -110,61 +83,48 @@ def get_category_by_keyword(merchant: str) -> str | None:
     return None
 
 
-def build_categorization_prompt(merchant: str) -> str:
+def build_batch_categorization_prompt(merchants: list[str]) -> str:
     """
-    Build the AI categorization prompt for a merchant.
+    Build the AI categorization prompt for multiple merchants.
 
     Args:
-        merchant: The merchant name to categorize
+        merchants: List of merchant names to categorize
 
     Returns:
-        Complete prompt string for Gemini API
+        Complete prompt string for Gemini API requesting JSON output
     """
     categories_list = "\n".join(f"- {cat}" for cat in sorted(VALID_CATEGORIES))
+    merchants_json = json.dumps(merchants, ensure_ascii=False)
 
-    return f"""Classify this merchant into ONE category. Reply with ONLY the category name, nothing else.
+    return f"""You are an expert at categorizing Costa Rican business transactions.
 
-Merchant: {merchant}
+TASK: For each merchant below, first identify what type of business it is, then assign the best category.
 
-## CLASSIFICATION RULES (apply these first by searching keywords, case-insensitive):
+MERCHANTS TO CATEGORIZE:
+{merchants_json}
 
-🛒 Mercado (alimentos, aseo hogar)
-Keywords: MXM, SUPER, MAS X MENOS, PRICE SMART, FRESK MARKET
-
-⛽ Combustible
-Keywords: SERVICENTRO, ESTACION
-
-🍽️ Domicilios/restaurantes
-Keywords: SODA, RESTAURANT, SUBWAY, CAFE, COFEE, PIZZA
-
-💧 Agua
-Keywords: AGUA
-
-⚡ Electricidad
-Keywords: ELECTRICIDAD, ICE
-
-🌐 Internet
-Keywords: INTERNET, CABLE
-
-🚗 Transporte UBER
-Keywords: UBER
-
-📺 YouTube Premium
-Keywords: YOUTUBE
-
-🤖 Chat GPT
-Keywords: GPT, CHATGPT
-
-⚰️ Plan funerario
-Keywords: FUNERARIO
-
-🏠 Hipoteca Casa
-Keywords: HIPOTECA, VIVIENDA
-
-📱 Plan celular
-Keywords: CELULAR, KOLBI, PLAN
-
-## ALL VALID CATEGORIES (use if no keyword rule matches):
+VALID CATEGORIES:
 {categories_list}
 
-Reply with ONLY the exact category name."""
+CATEGORIZATION RULES:
+- Bars, pubs, cantinas, discotecas, restaurants, sodas, cafeterias → "Domicilios/restaurantes"
+- Supermarkets, grocery stores, mini-supers, pulperías → "Mercado (alimentos, aseo hogar)"
+- Gas stations, gasolineras → "Combustible"
+- Pharmacies, farmacias → "Medicamentos"
+- Clothing stores, shoe stores, fashion → "Vestuario (ropa/zapato/accesorios)"
+- Electronics stores, tech shops → "Diversión" (unless clearly a necessity)
+- Entertainment venues, clubs, cinemas → "Diversión"
+- Hair salons, barberías → "Peluquería"
+- Auto shops, talleres, repuestos → "Mantenimiento vehículo"
+- Hardware stores, ferreterías, home repair → "Mantenimiento hogar"
+- Medical clinics, doctors, hospitals → "Consultas médicas"
+
+THINK STEP BY STEP:
+1. Look at each merchant name
+2. Use your knowledge to identify what kind of business it is (restaurant? bar? store?)
+3. Match it to the most appropriate category from the list above
+
+OUTPUT: Return ONLY a valid JSON object mapping each merchant to its category.
+Format: {{"Merchant Name": "Category"}}
+
+JSON RESPONSE:"""
