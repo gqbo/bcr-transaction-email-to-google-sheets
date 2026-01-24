@@ -1,0 +1,120 @@
+# Categories and keyword rules for transaction classification
+# Edit this file to add new categories or keywords - no code changes needed!
+#
+# HOW TO USE:
+# - To add a new category: Add it to the 'categories' list below
+# - To add a keyword rule: Add keywords under the appropriate category in 'keyword_rules'
+# - Keywords are case-insensitive (UBER, uber, Uber all work the same)
+
+# ============================================================================
+# ALL VALID SPENDING CATEGORIES
+# ============================================================================
+# Add new categories here. The AI will use this list when categorizing.
+categories:
+  - Agua
+  - Agua Desamparados
+  - Chat GPT
+  - Combustible
+  - Consultas médicas
+  - Diversión
+  - Domicilios/restaurantes
+  - Educación
+  - Electricidad
+  - Fruta/Snacks/Café
+  - Hipoteca Casa
+  - Internet
+  - Mantenimiento vehículo
+  - Mantenimiento hogar
+  - Medicamentos
+  - Mercado (alimentos, aseo hogar)
+  - Mesada Gabriel
+  - Mesada Oscar
+  - Peluquería
+  - Plan celular
+  - Plan funerario
+  - Transporte UBER
+  - Vacaciones
+  - Vestuario (ropa/zapato/accesorios)
+  - YouTube Premium
+
+# ============================================================================
+# KEYWORD RULES FOR AUTOMATIC CATEGORIZATION
+# ============================================================================
+# If a merchant name contains ANY of these keywords, it gets categorized
+# instantly WITHOUT calling the AI. This saves API calls and is faster.
+#
+# Example: A merchant "UBER TRIP 123" contains "UBER", so it automatically
+# gets categorized as "Transporte UBER" without needing AI.
+
+keyword_rules:
+  "Mercado (alimentos, aseo hogar)":
+    - MXM
+    - SUPER
+    - MAS X MENOS
+    - PRICE SMART
+    - FRESH MARKET
+    - AMPM
+
+  Combustible:
+    - SERVICENTRO
+    - ESTACION
+    - GLOBAL VIA
+    - PEAJE
+    - RUTA 27
+    - AUTOPISTA
+
+  Domicilios/restaurantes:
+    - SODA
+    - RESTAURANT
+    - SUBWAY
+    - CAFE
+    - COFEE
+    - PIZZA
+    - MC DONALDS
+    - MCDONALDS
+    - BURGER
+    - KFC
+    - TACO
+    - POLLO
+
+  Agua:
+    - AGUA
+
+  Electricidad:
+    - ELECTRICIDAD
+    - ICE
+
+  Internet:
+    - INTERNET
+    - CABLE
+
+  Transporte UBER:
+    - UBER
+
+  YouTube Premium:
+    - YOUTUBE
+
+  Chat GPT:
+    - GPT
+    - CHATGPT
+
+  Plan funerario:
+    - FUNERARIO
+
+  Hipoteca Casa:
+    - HIPOTECA
+    - VIVIENDA
+
+  Plan celular:
+    - CELULAR
+    - KOLBI
+    - PLAN
+
+  "Vestuario (ropa/zapato/accesorios)":
+    - KOAJ
+    - ZARA
+    - H&M
+    - FOREVER
+    - PAYLESS
+    - ADIDAS
+    - NIKE
