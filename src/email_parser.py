@@ -2,7 +2,7 @@
 Email parser for BCR bank transaction notifications.
 
 This module extracts structured transaction data from BCR email HTML
-using BeautifulSoup for robust parsing.
+for both card transactions and SINPE mobile transactions.
 """
 
 import re
@@ -19,23 +19,50 @@ class EmailParseError(Exception):
     pass
 
 
-def parse_bcr_email(html_content: str) -> Dict[str, str]:
+def detect_email_type(html_content: str, subject: str) -> str:
+    """
+    Detect the type of BCR email.
+
+    Args:
+        html_content: HTML content of the email
+        subject: Email subject line
+
+    Returns:
+        "card", "sinpe_debit", or "sinpe_credit"
+    """
+    if "SINPEMOVIL" in subject or "SINPE" in subject.upper():
+        # Check if debit or credit based on content
+        if "debitado" in html_content.lower():
+            return "sinpe_debit"
+        elif "acreditado" in html_content.lower():
+            return "sinpe_credit"
+        # Fallback: check for destination vs origin
+        if "Destino" in html_content:
+            return "sinpe_debit"
+        elif "origen" in html_content.lower():
+            return "sinpe_credit"
+    return "card"
+
+
+def parse_bcr_email(html_content: str, subject: str = "") -> Dict[str, str]:
     """
     Extract structured transaction data from BCR email HTML.
 
+    Automatically detects the email type and routes to the appropriate parser.
+
     Args:
         html_content: Complete HTML string from email
+        subject: Email subject line (optional, helps with type detection)
 
     Returns:
-        Dictionary with fields:
+        Dictionary with unified fields:
         {
-            "date": "22/01/2024 14:30:45",
-            "authorization": "123456",
-            "reference": "789012",
-            "amount": "15000.00",
-            "currency": "CRC",
-            "merchant": "MAS X MENOS DESAMPARADOS",
-            "status": "Approved"
+            "type": "card" | "sinpe_debit" | "sinpe_credit",
+            "dia": "DD/MM/YYYY HH:MM:SS",
+            "valor": "-15,000.00" | "15,000.00",
+            "concepto_source": "merchant or motivo for AI categorization",
+            "detalle": "merchant or cliente/motivo",
+            "referencia": "reference number"
         }
 
     Raises:
@@ -44,35 +71,147 @@ def parse_bcr_email(html_content: str) -> Dict[str, str]:
     if not html_content:
         raise EmailParseError("HTML content cannot be empty")
 
-    # Try parsing with BeautifulSoup first
-    result = _parse_from_html(html_content)
+    email_type = detect_email_type(html_content, subject)
+    logger.info(f"Detected email type: {email_type}")
+
+    if email_type in ("sinpe_debit", "sinpe_credit"):
+        result = _parse_sinpe_email(html_content, email_type)
+    else:
+        result = _parse_card_email(html_content)
 
     if result:
-        logger.info(f"Successfully parsed transaction: {result.get('merchant', 'Unknown')}")
+        logger.info(f"Successfully parsed {email_type} transaction: {result.get('detalle', 'Unknown')}")
         return result
 
-    # Fallback to plain text parsing
-    result = _parse_from_plain_text(html_content)
-
-    if result:
-        logger.info(f"Parsed from plain text: {result.get('merchant', 'Unknown')}")
-        return result
-
-    raise EmailParseError("Could not extract transaction data from email")
+    raise EmailParseError(f"Could not extract transaction data from {email_type} email")
 
 
-def _parse_from_html(html_content: str) -> Optional[Dict[str, str]]:
+def _parse_sinpe_email(html_content: str, email_type: str) -> Optional[Dict[str, str]]:
     """
-    Parse transaction data from HTML structure.
+    Parse SINPE mobile transaction email.
 
-    Looks for tbody elements with exactly 7 td values which correspond
-    to BCR transaction fields.
+    Args:
+        html_content: HTML content of the email
+        email_type: "sinpe_debit" or "sinpe_credit"
+
+    Returns:
+        Unified transaction dictionary or None
+    """
+    soup = BeautifulSoup(html_content, 'html.parser')
+    text = soup.get_text()
+    text = _clean_text(text)
+
+    # Extract reference number
+    ref_match = re.search(r'N[úu]mero de referencia:\s*(\d+)', text)
+    referencia = ref_match.group(1) if ref_match else ""
+
+    # Extract client name (Destino for debit, origen for credit)
+    # Pattern stops before known field labels or end markers
+    if email_type == "sinpe_debit":
+        client_match = re.search(
+            r'Nombre cliente Destino:\s*(.+?)(?=\s*(?:Entidad|Tel[eé]fono|Monto|Motivo|$))',
+            text, re.IGNORECASE
+        )
+    else:
+        client_match = re.search(
+            r'Nombre cliente origen:\s*(.+?)(?=\s*(?:Entidad|Tel[eé]fono|Monto|Motivo|$))',
+            text, re.IGNORECASE
+        )
+
+    cliente = _clean_text(client_match.group(1)) if client_match else ""
+
+    # Extract amount - stops at next field or whitespace
+    monto_match = re.search(r'Monto:\s*([\d,]+\.?\d*)', text)
+    monto = monto_match.group(1) if monto_match else "0"
+
+    # Extract motivo - stops before "Esta transacción" or end
+    motivo_match = re.search(
+        r'Motivo:\s*(.+?)(?=\s*Esta transacci[óo]n|$)',
+        text, re.IGNORECASE
+    )
+    motivo = _clean_text(motivo_match.group(1)) if motivo_match else ""
+
+    # Extract date and time
+    # Pattern: "Esta transacción fue realizada el DD/MM/YYYY a las H:MM PM"
+    date_match = re.search(
+        r'Esta transacci[óo]n fue realizada el\s*(\d{1,2}/\d{2}/\d{4})\s*a las\s*(\d{1,2}:\d{2})\s*(AM|PM)?',
+        text, re.IGNORECASE
+    )
+
+    if date_match:
+        date_part = date_match.group(1)
+        time_part = date_match.group(2)
+        ampm = date_match.group(3) or ""
+
+        # Convert to 24-hour format if needed
+        if ampm:
+            hour, minute = map(int, time_part.split(':'))
+            if ampm.upper() == 'PM' and hour != 12:
+                hour += 12
+            elif ampm.upper() == 'AM' and hour == 12:
+                hour = 0
+            time_part = f"{hour:02d}:{minute:02d}:00"
+        else:
+            time_part = f"{time_part}:00"
+
+        dia = f"{date_part} {time_part}"
+    else:
+        dia = ""
+
+    # Build valor (negative for debit, positive for credit)
+    if email_type == "sinpe_debit":
+        valor = f"-{monto}"
+    else:
+        valor = monto
+
+    # Build detalle: "Cliente / Motivo"
+    if motivo:
+        detalle = f"{cliente} / {motivo}"
+    else:
+        detalle = cliente
+
+    # concepto_source is the motivo (for AI categorization)
+    concepto_source = motivo
+
+    return {
+        "type": email_type,
+        "dia": dia,
+        "valor": valor,
+        "concepto_source": concepto_source,
+        "detalle": detalle,
+        "referencia": referencia
+    }
+
+
+def _parse_card_email(html_content: str) -> Optional[Dict[str, str]]:
+    """
+    Parse card transaction email (original BCR format).
+
+    Args:
+        html_content: HTML content of the email
+
+    Returns:
+        Unified transaction dictionary or None
+    """
+    # Try parsing with BeautifulSoup first (HTML table format)
+    result = _parse_card_from_html(html_content)
+
+    if not result:
+        # Fallback to plain text parsing
+        result = _parse_card_from_plain_text(html_content)
+
+    return result
+
+
+def _parse_card_from_html(html_content: str) -> Optional[Dict[str, str]]:
+    """
+    Parse card transaction data from HTML table structure.
 
     Args:
         html_content: HTML string to parse
 
     Returns:
-        Transaction dictionary or None if parsing fails
+        Unified transaction dictionary or None
     """
     soup = BeautifulSoup(html_content, 'html.parser')
 
@@ -85,41 +224,44 @@ def _parse_from_html(html_content: str) -> Optional[Dict[str, str]]:
 
         values = []
         for td in tds:
-            # Clean text content
             text = td.get_text()
             text = _clean_text(text)
-
             if text:
                 values.append(text)
 
-        # Check if we have exactly 7 fields (BCR transaction format)
+        # Check if we have exactly 7 fields (BCR card transaction format)
+        # Fields: Fecha, Autorización, No.Referencia, Monto, Moneda, Comercio, Estado
         if len(values) >= 7:
+            date_str = values[0]  # DD/MM/YYYY HH:MM:SS
+            reference = values[2]
+            amount = values[3]
+            merchant = values[5]
+
+            # Card transactions are always negative (money out)
+            valor = f"-{amount}"
+
             return {
-                "date": values[0],
-                "authorization": values[1],
-                "reference": values[2],
-                "amount": values[3],
-                "currency": values[4],
-                "merchant": values[5],
-                "status": values[6]
+                "type": "card",
+                "dia": date_str,
+                "valor": valor,
+                "concepto_source": merchant,  # For AI categorization
+                "detalle": merchant,
+                "referencia": reference
             }
 
     return None
 
 
-def _parse_from_plain_text(html_content: str) -> Optional[Dict[str, str]]:
+def _parse_card_from_plain_text(html_content: str) -> Optional[Dict[str, str]]:
     """
-    Fallback parser using regex on plain text.
-
-    Used when HTML structure doesn't match expected format.
+    Fallback parser for card transactions using regex on plain text.
 
     Args:
         html_content: HTML string to parse
 
     Returns:
-        Transaction dictionary or None if parsing fails
+        Unified transaction dictionary or None
     """
-    # Strip HTML tags for plain text parsing
     soup = BeautifulSoup(html_content, 'html.parser')
     text = soup.get_text()
     text = _clean_text(text)
@@ -134,39 +276,25 @@ def _parse_from_plain_text(html_content: str) -> Optional[Dict[str, str]]:
 
     date_value = date_match.group(1)
 
-    # Try to extract other fields using common patterns
-    # Amount pattern: numbers with optional decimals
+    # Amount pattern
     amount_pattern = r'(\d{1,3}(?:[,.\s]?\d{3})*(?:[.,]\d{2})?)'
     amount_matches = re.findall(amount_pattern, text)
 
-    # Currency pattern
-    currency_pattern = r'(CRC|USD|EUR)'
-    currency_match = re.search(currency_pattern, text, re.IGNORECASE)
-
-    # Authorization/Reference patterns (6-digit numbers)
-    ref_pattern = r'\b(\d{6})\b'
+    # Reference patterns (6-8 digit numbers)
+    ref_pattern = r'\b(\d{6,8})\b'
     ref_matches = re.findall(ref_pattern, text)
 
-    # Build result with available data
-    result = {
-        "date": date_value,
-        "authorization": ref_matches[0] if len(ref_matches) > 0 else "",
-        "reference": ref_matches[1] if len(ref_matches) > 1 else "",
-        "amount": amount_matches[0] if amount_matches else "",
-        "currency": currency_match.group(1) if currency_match else "CRC",
-        "merchant": "",
-        "status": "Unknown"
+    amount = amount_matches[0] if amount_matches else "0"
+    reference = ref_matches[1] if len(ref_matches) > 1 else (ref_matches[0] if ref_matches else "")
+
+    return {
+        "type": "card",
+        "dia": date_value,
+        "valor": f"-{amount}",
+        "concepto_source": "",
+        "detalle": "",
+        "referencia": reference
     }
-
-    # Try to find merchant name (usually after currency or before status)
-    # This is a heuristic and may need adjustment based on actual email format
-    status_keywords = ["approved", "aprobad", "rejected", "rechazad", "pending"]
-    for keyword in status_keywords:
-        if keyword.lower() in text.lower():
-            result["status"] = "Approved" if "aprobad" in keyword.lower() or "approved" in keyword.lower() else "Rejected"
-            break
-
-    return result if result["date"] else None
 
 
 def _clean_text(text: str) -> str:
@@ -205,25 +333,26 @@ def validate_transaction_data(data: Dict[str, str]) -> bool:
     Returns:
         True if all required fields are present and valid
     """
-    required_fields = ['date', 'amount', 'merchant', 'status']
+    required_fields = ['type', 'dia', 'valor', 'referencia']
 
     # Check required fields exist and are non-empty
     if not all(field in data and data[field] for field in required_fields):
-        logger.error("Missing required fields in transaction data")
+        missing = [f for f in required_fields if f not in data or not data[f]]
+        logger.error(f"Missing required fields in transaction data: {missing}")
         return False
 
-    # Validate date format
+    # Validate date format (should start with DD/MM/YYYY)
     date_pattern = r'\d{2}/\d{2}/\d{4}'
-    if not re.match(date_pattern, data['date']):
-        logger.warning(f"Invalid date format: {data['date']}")
+    if not re.match(date_pattern, data['dia']):
+        logger.warning(f"Invalid date format: {data['dia']}")
         return False
 
-    # Validate amount (should be numeric after removing formatting)
+    # Validate valor (should be numeric after removing formatting and sign)
     try:
-        amount_clean = data['amount'].replace(',', '').replace(' ', '')
-        float(amount_clean)
+        valor_clean = data['valor'].replace(',', '').replace(' ', '').replace('-', '')
+        float(valor_clean)
     except ValueError:
-        logger.warning(f"Invalid amount format: {data['amount']}")
+        logger.warning(f"Invalid valor format: {data['valor']}")
         return False
 
     return True
