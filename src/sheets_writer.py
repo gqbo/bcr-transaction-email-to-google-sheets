@@ -22,7 +22,7 @@ MAX_RETRIES = 3
 RETRY_DELAY = 2  # seconds
 
 # Column headers for new sheets
-HEADERS = ["Dia", "Valor", "Concepto", "Detalle", "Referencia"]
+HEADERS = ["Dia", "Valor", "Concepto", "Detalle", "Referencia", "Moneda", "Tarjeta"]
 
 
 class SheetsWriter:
@@ -48,7 +48,7 @@ class SheetsWriter:
             raise ValueError("SPREADSHEET_ID environment variable is not set")
 
         self.service = self._build_service()
-        self.sheet_range = 'A:E'  # Columns A through E (Fecha, No.Referencia, Monto, Comercio, Categoria)
+        self.sheet_range = 'A:G'  # Columns A through G (Dia, Valor, Concepto, Detalle, Referencia, Moneda, Tarjeta)
         self._cached_sheets: Optional[List[str]] = None  # Cache for existing sheet names
 
     def _build_service(self):
@@ -161,7 +161,7 @@ class SheetsWriter:
             logger.info(f"Created new sheet: {sheet_name}")
 
             # Add headers to the new sheet
-            header_range = f"'{sheet_name}'!A1:E1"
+            header_range = f"'{sheet_name}'!A1:G1"
             self.service.spreadsheets().values().update(
                 spreadsheetId=self.spreadsheet_id,
                 range=header_range,
@@ -230,13 +230,15 @@ class SheetsWriter:
             return False, None
 
         # Build row data matching column order:
-        # Dia | Valor | Concepto | Detalle | Referencia
+        # Dia | Valor | Concepto | Detalle | Referencia | Moneda | Tarjeta
         row = [
             date_str,                            # Dia
             transaction.get('valor', ''),        # Valor (with sign)
             category,                            # Concepto (AI category)
             transaction.get('detalle', ''),      # Detalle
-            transaction.get('referencia', '')    # Referencia
+            transaction.get('referencia', ''),   # Referencia
+            transaction.get('moneda', ''),       # Moneda
+            transaction.get('tarjeta', '')       # Tarjeta
         ]
 
         return self._append_row(row, sheet_name)
