@@ -23,7 +23,7 @@ load_dotenv()
 
 from src.gmail_checker import GmailChecker
 from src.email_parser import parse_bcr_email, EmailParseError
-from src.ai_categorizer import categorize_merchant
+from src.ai_categorizer import categorize_merchant, batch_categorize
 from src.sheets_writer import SheetsWriter
 
 # Configure logging
@@ -154,24 +154,57 @@ def main():
         logger.info(f"Found {len(emails)} email(s) to process")
         logger.info("-" * 50)
 
-        # Process each email
-        processed = 0
-        errors = 0
-        results: List[str] = []
+        # Phase 1: Parse all emails first
+        logger.info("Parsing all emails...")
+        parsed_emails = []
+        parse_errors = []
 
         for i, email in enumerate(emails, start=1):
-            logger.info(f"Processing email {i}/{len(emails)}...")
+            email_id = email.get('id', 'unknown')
+            try:
+                transaction = parse_bcr_email(email['html'])
+                parsed_emails.append((email, transaction))
+                logger.info(f"  [{i}/{len(emails)}] Parsed: {transaction.get('merchant', 'Unknown')}")
+            except EmailParseError as e:
+                parse_errors.append((email_id, str(e)))
+                logger.error(f"  [{i}/{len(emails)}] Parse error: {e}")
 
-            success, message = process_email(email, writer, gmail)
+        # Phase 2: Batch categorize all merchants (single API call)
+        categories = {}
+        if parsed_emails:
+            merchants = [t.get('merchant', 'Unknown') for _, t in parsed_emails]
+            logger.info(f"Batch categorizing {len(merchants)} merchant(s)...")
+            categories = batch_categorize(merchants)
 
-            if success:
-                processed += 1
-                results.append(f"[OK] {message}")
-            else:
+        # Phase 3: Write to sheets and mark as read
+        logger.info("Writing to sheets...")
+        processed = 0
+        errors = len(parse_errors)
+        results: List[str] = []
+
+        for email, transaction in parsed_emails:
+            email_id = email.get('id', 'unknown')
+            merchant = transaction.get('merchant', 'Unknown')
+            category = categories.get(merchant, 'Uncategorized')
+
+            try:
+                success, row_num = writer.append_transaction(transaction, category)
+                if success:
+                    logger.info(f"  Written to row {row_num}: {merchant} -> {category}")
+                    gmail.mark_as_read(email_id)
+                    processed += 1
+                    results.append(f"[OK] Processed: {merchant} -> {category}")
+                else:
+                    errors += 1
+                    results.append(f"[ERROR] Failed to write: {merchant}")
+            except Exception as e:
                 errors += 1
-                results.append(f"[ERROR] {message}")
+                results.append(f"[ERROR] {merchant}: {e}")
+                logger.error(f"  Error writing {merchant}: {e}")
 
-            logger.info("-" * 30)
+        # Add parse errors to results
+        for email_id, error_msg in parse_errors:
+            results.append(f"[ERROR] Parse failed ({email_id}): {error_msg}")
 
         # Print summary
         logger.info("")
