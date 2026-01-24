@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.email_parser import (
     parse_bcr_email,
     EmailParseError,
+    DeniedTransactionError,
     validate_transaction_data,
     _clean_text
 )
@@ -56,6 +57,7 @@ class TestParseBcrEmail:
     def test_parse_valid_email(self):
         """Test parsing a real BCR email HTML structure."""
         html = """
+        <div class="azul">Transacciones en su tarjeta BCR: ****-****-****-9282</div>
         <table style="width:100%">
             <thead>
                 <tr>
@@ -83,17 +85,18 @@ class TestParseBcrEmail:
         """
         result = parse_bcr_email(html)
 
-        assert result['date'] == '16/01/2026 22:31:15'
-        assert result['authorization'] == '00918804'
-        assert result['reference'] == '11721252'
-        assert result['amount'] == '4,000.00'
-        assert result['currency'] == 'COLON COSTA RICA'
-        assert result['merchant'] == 'LA CALI SAN JOSE CR'
-        assert result['status'] == 'Aprobada'
+        assert result['type'] == 'card'
+        assert result['dia'] == '16/01/2026 22:31:15'
+        assert result['valor'] == '-4,000.00'
+        assert result['referencia'] == '11721252'
+        assert result['detalle'] == 'LA CALI SAN JOSE CR'
+        assert result['moneda'] == 'COLON COSTA RICA'
+        assert result['tarjeta'] == '9282'
 
     def test_parse_email_with_whitespace(self):
         """Test parsing email with extra whitespace in cells."""
         html = """
+        <div>****-****-****-1234</div>
         <table>
             <tbody>
                 <tr>
@@ -110,8 +113,9 @@ class TestParseBcrEmail:
         """
         result = parse_bcr_email(html)
 
-        assert result['date'] == '16/01/2026 22:31:15'
-        assert result['merchant'] == 'LA CALI SAN JOSE CR'
+        assert result['dia'] == '16/01/2026 22:31:15'
+        assert result['detalle'] == 'LA CALI SAN JOSE CR'
+        assert result['tarjeta'] == '1234'
 
     def test_parse_empty_html_raises_error(self):
         """Test that empty HTML raises EmailParseError."""
@@ -136,9 +140,30 @@ class TestParseBcrEmail:
 
         result = parse_bcr_email(html)
 
-        assert result['date'] == '16/01/2026 22:31:15'
-        assert result['merchant'] == 'LA CALI SAN JOSE CR'
-        assert result['amount'] == '4,000.00'
+        assert result['dia'] == '16/01/2026 22:31:15'
+        assert result['detalle'] == 'LA CALI SAN JOSE CR'
+        assert result['valor'] == '-4,000.00'
+
+    def test_parse_denied_transaction_raises_error(self):
+        """Test that denied transactions raise DeniedTransactionError."""
+        html = """
+        <div>****-****-****-8906</div>
+        <table>
+            <tbody>
+                <tr>
+                    <td>22/01/2026 13:00:01</td>
+                    <td>00000000</td>
+                    <td>602271785408</td>
+                    <td>1.00</td>
+                    <td>US DOLLAR</td>
+                    <td>ORACLE AMERICA INC REDWOOD CITY US</td>
+                    <td>Negada</td>
+                </tr>
+            </tbody>
+        </table>
+        """
+        with pytest.raises(DeniedTransactionError):
+            parse_bcr_email(html)
 
 
 class TestValidateTransactionData:
@@ -147,56 +172,57 @@ class TestValidateTransactionData:
     def test_valid_transaction(self):
         """Test that valid transaction data passes validation."""
         data = {
-            'date': '22/01/2024 14:30:45',
-            'authorization': '123456',
-            'reference': '789012',
-            'amount': '15000.00',
-            'currency': 'CRC',
-            'merchant': 'MAS X MENOS',
-            'status': 'Approved'
+            'type': 'card',
+            'dia': '22/01/2024 14:30:45',
+            'valor': '-15,000.00',
+            'concepto_source': 'MAS X MENOS',
+            'detalle': 'MAS X MENOS',
+            'referencia': '789012',
+            'moneda': 'COLON COSTA RICA',
+            'tarjeta': '9282'
         }
         assert validate_transaction_data(data) is True
 
     def test_missing_required_field(self):
         """Test that missing required field fails validation."""
         data = {
-            'date': '22/01/2024 14:30:45',
-            'authorization': '123456',
-            # missing amount
-            'merchant': 'MAS X MENOS',
-            'status': 'Approved'
+            'type': 'card',
+            'dia': '22/01/2024 14:30:45',
+            # missing valor
+            'detalle': 'MAS X MENOS',
+            'referencia': '789012'
         }
         assert validate_transaction_data(data) is False
 
     def test_empty_required_field(self):
         """Test that empty required field fails validation."""
         data = {
-            'date': '22/01/2024 14:30:45',
-            'authorization': '123456',
-            'amount': '',  # empty
-            'merchant': 'MAS X MENOS',
-            'status': 'Approved'
+            'type': 'card',
+            'dia': '22/01/2024 14:30:45',
+            'valor': '',  # empty
+            'detalle': 'MAS X MENOS',
+            'referencia': '789012'
         }
         assert validate_transaction_data(data) is False
 
     def test_invalid_date_format(self):
         """Test that invalid date format fails validation."""
         data = {
-            'date': '2024-01-22',  # wrong format
-            'authorization': '123456',
-            'amount': '15000.00',
-            'merchant': 'MAS X MENOS',
-            'status': 'Approved'
+            'type': 'card',
+            'dia': '2024-01-22',  # wrong format
+            'valor': '-15,000.00',
+            'detalle': 'MAS X MENOS',
+            'referencia': '789012'
         }
         assert validate_transaction_data(data) is False
 
     def test_invalid_amount_format(self):
         """Test that non-numeric amount fails validation."""
         data = {
-            'date': '22/01/2024 14:30:45',
-            'authorization': '123456',
-            'amount': 'abc',
-            'merchant': 'MAS X MENOS',
-            'status': 'Approved'
+            'type': 'card',
+            'dia': '22/01/2024 14:30:45',
+            'valor': 'abc',
+            'detalle': 'MAS X MENOS',
+            'referencia': '789012'
         }
         assert validate_transaction_data(data) is False
