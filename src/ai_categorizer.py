@@ -1,8 +1,10 @@
 """
-AI-powered merchant categorization using Google Gemini.
+AI-powered transaction categorization using Google Gemini.
 
-This module uses Gemini 2.5 Flash to categorize merchants
-into predefined spending categories.
+This module uses Gemini 2.5 Flash to categorize transactions
+into predefined spending categories based on:
+- Merchant names (for card transactions)
+- Motivo/reason (for SINPE transactions)
 """
 
 import os
@@ -214,38 +216,59 @@ def _batch_categorize_with_ai(merchants: list[str]) -> dict[str, str]:
         return {merchant: "Uncategorized" for merchant in merchants}
 
 
-def batch_categorize(merchants: list[str]) -> dict[str, str]:
+def batch_categorize(concepto_sources: list[str]) -> dict[str, str]:
     """
-    Categorize multiple merchants efficiently.
+    Categorize multiple transactions efficiently.
 
     First applies keyword matching (no API call), then batches remaining
-    merchants into a single AI API call.
+    items into a single AI API call.
 
     Args:
-        merchants: List of merchant names
+        concepto_sources: List of categorization sources:
+            - Merchant names (for card transactions)
+            - Motivo/reason (for SINPE transactions)
 
     Returns:
-        Dictionary mapping merchant names to categories
+        Dictionary mapping source strings to categories.
+        Empty or whitespace-only strings return "Uncategorized".
     """
     results = {}
     needs_ai = []
 
+    # Phrases that indicate no meaningful description
+    uncategorizable_phrases = [
+        "sin descripcion",
+        "sin descripción",
+        "no descripcion",
+        "no descripción",
+        "n/a",
+        "na",
+    ]
+
     # First pass: keyword matching (free, no API call)
-    for merchant in merchants:
-        if not merchant:
-            results[merchant] = "Uncategorized"
+    for source in concepto_sources:
+        # Handle empty or whitespace-only strings
+        if not source or not source.strip():
+            results[source] = "Uncategorized"
             continue
 
-        keyword_category = get_category_by_keyword(merchant)
-        if keyword_category:
-            logger.info(f"Categorized '{merchant}' via keyword: {keyword_category}")
-            results[merchant] = keyword_category
-        else:
-            needs_ai.append(merchant)
+        # Handle "Sin Descripcion" and similar phrases
+        source_lower = source.strip().lower()
+        if source_lower in uncategorizable_phrases:
+            logger.info(f"Skipping categorization for '{source}' (no meaningful description)")
+            results[source] = "Uncategorized"
+            continue
 
-    # Second pass: batch AI call for remaining merchants
+        keyword_category = get_category_by_keyword(source)
+        if keyword_category:
+            logger.info(f"Categorized '{source}' via keyword: {keyword_category}")
+            results[source] = keyword_category
+        else:
+            needs_ai.append(source)
+
+    # Second pass: batch AI call for remaining items
     if needs_ai:
-        logger.info(f"Batch categorizing {len(needs_ai)} merchants via AI")
+        logger.info(f"Batch categorizing {len(needs_ai)} items via AI")
         ai_results = _batch_categorize_with_ai(needs_ai)
         results.update(ai_results)
 

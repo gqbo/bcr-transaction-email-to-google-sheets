@@ -98,9 +98,10 @@ def build_batch_categorization_prompt(merchants: list[str]) -> str:
 
     return f"""You are an expert at categorizing Costa Rican business transactions.
 
-TASK: For each merchant below, first identify what type of business it is, then assign the best category.
+TASK: For each item below, identify what type of expense it represents, then assign the best category.
+Items may be merchant names (e.g., "MAS X MENOS") or transaction descriptions/motivos (e.g., "Pago alquiler").
 
-MERCHANTS TO CATEGORIZE:
+ITEMS TO CATEGORIZE:
 {merchants_json}
 
 VALID CATEGORIES:
@@ -119,12 +120,17 @@ CATEGORIZATION RULES:
 - Hardware stores, ferreterías, home repair → "Mantenimiento hogar"
 - Medical clinics, doctors, hospitals → "Consultas médicas"
 
-THINK STEP BY STEP:
-1. Look at each merchant name
-2. Use your knowledge to identify what kind of business it is (restaurant? bar? store?)
-3. Match it to the most appropriate category from the list above
+CONFIDENCE REQUIREMENT:
+- Only assign a category if you are 80% or more confident it is correct
+- If the description is vague, ambiguous, or you cannot determine the category with high confidence, use "Uncategorized"
+- Examples of items that should be "Uncategorized": random words, abbreviations without context, names only, gibberish
 
-OUTPUT: Return ONLY a valid JSON object mapping each merchant to its category.
-Format: {{"Merchant Name": "Category"}}
+THINK STEP BY STEP:
+1. Look at each item (merchant name or description)
+2. Identify what kind of expense it likely represents
+3. If you're 80%+ confident, assign the best category; otherwise use "Uncategorized"
+
+OUTPUT: Return ONLY a valid JSON object mapping each item to its category.
+Format: {{"Item": "Category"}}
 
 JSON RESPONSE:"""

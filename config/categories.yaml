@@ -11,6 +11,7 @@
 # ============================================================================
 # Add new categories here. The AI will use this list when categorizing.
 categories:
+  - Uncategorized
   - Agua
   - Agua Desamparados
   - Chat GPT
