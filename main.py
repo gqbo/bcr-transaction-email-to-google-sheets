@@ -20,6 +20,7 @@ import os
 import sys
 import logging
 from typing import List, Tuple
+from datetime import datetime
 from dotenv import load_dotenv
 
 # Load .env file if it exists (for local development)
@@ -195,6 +196,11 @@ def main():
             concepto_sources = [t.get('concepto_source', '') for _, t in parsed_emails]
             logger.info(f"Batch categorizing {len(concepto_sources)} transaction(s)...")
             categories = batch_categorize(concepto_sources)
+
+        # Sort transactions chronologically (oldest first)
+        parsed_emails.sort(
+            key=lambda x: datetime.strptime(x[1]['dia'], "%d/%m/%Y %H:%M:%S")
+        )
 
         # Phase 3: Batch write to sheets and mark as read
         logger.info("Writing to sheets (batch mode)...")
