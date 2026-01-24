@@ -2,11 +2,16 @@
 BCR Bank Email to Google Sheets - Main Orchestrator
 
 This script coordinates all components to:
-1. Check Gmail for new BCR transaction emails
+1. Check Gmail for new BCR transaction emails (card and SINPE)
 2. Parse transaction data from email HTML
-3. Categorize merchants using Gemini AI
+3. Categorize transactions using Gemini AI
 4. Append data to Google Sheets
 5. Mark processed emails as read
+
+Supported email types:
+- Card transactions: "Notificación de Transacciones BCR"
+- SINPE debit: "SINPEMOVIL - Notificación de transacción realizada" (debitado)
+- SINPE credit: "SINPEMOVIL - Notificación de transacción realizada" (acreditado)
 
 Designed to run hourly via GitHub Actions.
 """
@@ -80,15 +85,17 @@ def process_email(
         Tuple of (success: bool, message: str)
     """
     email_id = email.get('id', 'unknown')
+    subject = email.get('subject', '')
 
     try:
         # Step 1: Parse email HTML
-        transaction = parse_bcr_email(email['html'])
-        merchant = transaction.get('merchant', 'Unknown')
-        logger.info(f"  Parsed: {merchant}")
+        transaction = parse_bcr_email(email['html'], subject)
+        detalle = transaction.get('detalle', 'Unknown')
+        concepto_source = transaction.get('concepto_source', '')
+        logger.info(f"  Parsed: {detalle}")
 
-        # Step 2: Categorize merchant
-        category = categorize_merchant(merchant)
+        # Step 2: Categorize transaction
+        category = categorize_merchant(concepto_source)
         logger.info(f"  Category: {category}")
 
         # Step 3: Write to Sheets
@@ -100,9 +107,9 @@ def process_email(
             # Step 4: Mark email as read
             gmail.mark_as_read(email_id)
 
-            return True, f"Processed: {merchant} -> {category}"
+            return True, f"Processed: {detalle} -> {category}"
         else:
-            return False, f"Failed to write to Sheets: {merchant}"
+            return False, f"Failed to write to Sheets: {detalle}"
 
     except EmailParseError as e:
         logger.error(f"  Parse error: {e}")
@@ -161,20 +168,24 @@ def main():
 
         for i, email in enumerate(emails, start=1):
             email_id = email.get('id', 'unknown')
+            subject = email.get('subject', '')
             try:
-                transaction = parse_bcr_email(email['html'])
+                transaction = parse_bcr_email(email['html'], subject)
                 parsed_emails.append((email, transaction))
-                logger.info(f"  [{i}/{len(emails)}] Parsed: {transaction.get('merchant', 'Unknown')}")
+                tx_type = transaction.get('type', 'unknown')
+                detalle = transaction.get('detalle', 'Unknown')
+                logger.info(f"  [{i}/{len(emails)}] Parsed ({tx_type}): {detalle}")
             except EmailParseError as e:
                 parse_errors.append((email_id, str(e)))
                 logger.error(f"  [{i}/{len(emails)}] Parse error: {e}")
 
-        # Phase 2: Batch categorize all merchants (single API call)
+        # Phase 2: Batch categorize all transactions (single API call)
+        # Uses concepto_source: merchant name for cards, motivo for SINPE
         categories = {}
         if parsed_emails:
-            merchants = [t.get('merchant', 'Unknown') for _, t in parsed_emails]
-            logger.info(f"Batch categorizing {len(merchants)} merchant(s)...")
-            categories = batch_categorize(merchants)
+            concepto_sources = [t.get('concepto_source', '') for _, t in parsed_emails]
+            logger.info(f"Batch categorizing {len(concepto_sources)} transaction(s)...")
+            categories = batch_categorize(concepto_sources)
 
         # Phase 3: Write to sheets and mark as read
         logger.info("Writing to sheets...")
@@ -184,23 +195,25 @@ def main():
 
         for email, transaction in parsed_emails:
             email_id = email.get('id', 'unknown')
-            merchant = transaction.get('merchant', 'Unknown')
-            category = categories.get(merchant, 'Uncategorized')
+            concepto_source = transaction.get('concepto_source', '')
+            detalle = transaction.get('detalle', 'Unknown')
+            tx_type = transaction.get('type', 'unknown')
+            category = categories.get(concepto_source, 'Uncategorized')
 
             try:
                 success, row_num = writer.append_transaction(transaction, category)
                 if success:
-                    logger.info(f"  Written to row {row_num}: {merchant} -> {category}")
+                    logger.info(f"  Written to row {row_num}: {detalle} -> {category}")
                     gmail.mark_as_read(email_id)
                     processed += 1
-                    results.append(f"[OK] Processed: {merchant} -> {category}")
+                    results.append(f"[OK] {tx_type}: {detalle} -> {category}")
                 else:
                     errors += 1
-                    results.append(f"[ERROR] Failed to write: {merchant}")
+                    results.append(f"[ERROR] Failed to write: {detalle}")
             except Exception as e:
                 errors += 1
-                results.append(f"[ERROR] {merchant}: {e}")
-                logger.error(f"  Error writing {merchant}: {e}")
+                results.append(f"[ERROR] {detalle}: {e}")
+                logger.error(f"  Error writing {detalle}: {e}")
 
         # Add parse errors to results
         for email_id, error_msg in parse_errors:
