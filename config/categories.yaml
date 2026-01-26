@@ -22,6 +22,7 @@ categories:
   - Transportation (Rideshare)
   - Transportation (Tolls)
   - Restaurants/Dining
+  - Party
   - Coffee/Snacks
   - Healthcare (Medical)
   - Healthcare (Pharmacy)
@@ -103,6 +104,21 @@ keyword_rules:
     - APPLEBEES
     - OLIVE GARDEN
     - OUTBACK
+    - UBER EATS
+
+  "Party":
+    - CALI
+    - BAR
+    - LA CALI
+    - BIRRA
+    - ALCOHOL
+    - MERCADITO
+    - LA CONCHA
+    - LA FLOTA
+    - AREA
+    - CLUB
+    - EINSTEIN
+    - XCAPE
 
   "Coffee/Snacks":
     - CAFE
