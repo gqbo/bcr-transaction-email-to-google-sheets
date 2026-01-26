@@ -1,0 +1,227 @@
+# Categories and keyword rules for transaction classification
+# Edit this file to add new categories or keywords - no code changes needed!
+#
+# HOW TO USE:
+# - To add a new category: Add it to the 'categories' list below
+# - To add a keyword rule: Add keywords under the appropriate category in 'keyword_rules'
+# - Keywords are case-insensitive (UBER, uber, Uber all work the same)
+
+# ============================================================================
+# ALL VALID SPENDING CATEGORIES
+# ============================================================================
+# Add new categories here. The AI will use this list when categorizing.
+categories:
+  - Uncategorized
+  - Utilities (Water)
+  - Utilities (Electricity)
+  - Internet/Cable
+  - Phone Plan
+  - Housing (Rent/Mortgage)
+  - Groceries
+  - Transportation (Fuel)
+  - Transportation (Rideshare)
+  - Transportation (Tolls)
+  - Restaurants/Dining
+  - Coffee/Snacks
+  - Healthcare (Medical)
+  - Healthcare (Pharmacy)
+  - Personal Care
+  - Clothing/Accessories
+  - Home Maintenance
+  - Vehicle Maintenance
+  - Entertainment
+  - Subscriptions
+  - Education
+  - Allowances
+  - Travel/Vacations
+  - Insurance
+
+# ============================================================================
+# KEYWORD RULES FOR AUTOMATIC CATEGORIZATION
+# ============================================================================
+# If a merchant name contains ANY of these keywords, it gets categorized
+# instantly WITHOUT calling the AI. This saves API calls and is faster.
+
+keyword_rules:
+  Groceries:
+    - SUPER
+    - MERCADO
+    - MAS X MENOS
+    - MXM
+    - AUTO MERCADO
+    - AUTOMERCADO
+    - WALMART
+    - PRICE SMART
+    - FRESH MARKET
+    - PALI
+    - MEGASUPER
+    - MAS MEGA
+    - MAXI PALI
+    - AMPM
+    - MINI SUPER
+
+  "Transportation (Fuel)":
+    - GASOLINA
+    - COMBUSTIBLE
+    - SERVICENTRO
+    - ESTACION
+    - DELTA
+    - RECOPE
+    - NATIONAL
+
+  "Transportation (Tolls)":
+    - PEAJE
+    - GLOBAL VIA
+    - RUTA 27
+    - RUTA 32
+    - AUTOPISTA
+
+  "Transportation (Rideshare)":
+    - UBER
+    - DIDI
+    - CABIFY
+    - INDRIVER
+    - TAXI
+
+  "Restaurants/Dining":
+    - RESTAURANT
+    - SODA
+    - COMIDA
+    - SUBWAY
+    - MC DONALDS
+    - MCDONALDS
+    - BURGER KING
+    - KFC
+    - TACO BELL
+    - PAPA JOHNS
+    - PIZZA HUT
+    - LITTLE CAESARS
+    - DENNYS
+    - IHOP
+    - POLLO GRANJERO
+    - ROSTIPOLLOS
+    - APPLEBEES
+    - OLIVE GARDEN
+    - OUTBACK
+
+  "Coffee/Snacks":
+    - CAFE
+    - COFFEE
+    - STARBUCKS
+    - SPOON
+    - MUSMANNI
+    - PANADERIA
+
+  "Utilities (Water)":
+    - AGUA
+    - ACUEDUCTO
+    - AYA
+    - ASADA
+
+  "Utilities (Electricity)":
+    - ELECTRICIDAD
+    - LUZ
+    - ICE
+    - CNFL
+    - ESPH
+    - JASEC
+    - COOPELESCA
+    - COOPEGUANACASTE
+
+  "Internet/Cable":
+    - INTERNET
+    - CABLE
+    - KÖLBI
+    - KOLBI
+    - TIGO
+    - CLARO
+    - CABLETICA
+    - TELECABLE
+    - SKY
+
+  "Phone Plan":
+    - CELULAR
+    - TELEFONO
+    - MOVISTAR
+    - LIBERTY
+
+  "Housing (Rent/Mortgage)":
+    - ALQUILER
+    - RENTA
+    - HIPOTECA
+    - VIVIENDA
+    - INMOBILIARIA
+    - BAC
+    - BANCO NACIONAL
+    - BCR
+
+  "Clothing/Accessories":
+    - ROPA
+    - KOAJ
+    - ZARA
+    - H&M
+    - FOREVER 21
+    - BERSHKA
+    - PULL&BEAR
+    - STRADIVARIUS
+    - PAYLESS
+    - ADIDAS
+    - NIKE
+    - PUMA
+    - REEBOK
+
+  "Healthcare (Pharmacy)":
+    - FARMACIA
+    - FISCHEL
+    - CLINICA
+    - SUCRE
+
+  "Personal Care":
+    - SALON
+    - PELUQUERIA
+    - BARBERIA
+    - SPA
+    - ESTETICA
+
+  "Home Maintenance":
+    - FERRETERIA
+    - EPA
+    - CONSTRUPLAZA
+    - EL LAGAR
+    - CONSTRURAMA
+
+  "Vehicle Maintenance":
+    - TALLER
+    - MECANICO
+    - LUBRICENTRO
+    - AUTOPITS
+    - LLANTAS
+    - BRIDGESTONE
+    - GOODYEAR
+
+  Entertainment:
+    - CINE
+    - CINEPOLIS
+    - CINEMARK
+    - TEATRO
+    - CONCIERTO
+    - PARQUE
+
+  Subscriptions:
+    - NETFLIX
+    - SPOTIFY
+    - YOUTUBE
+    - DISNEY
+    - HBO
+    - PRIME
+    - APPLE
+    - CHATGPT
+    - GPT
+
+  Insurance:
+    - SEGURO
+    - INS
+    - MAPFRE
+    - ASSA
+    - SAGICOR
+    - FUNERARIO

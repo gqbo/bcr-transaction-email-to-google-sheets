@@ -14,8 +14,43 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-# Load configuration from YAML file
-_CONFIG_FILE = Path(__file__).parent / "categories.yaml"
+def _get_config_file() -> Path:
+    """
+    Determine which categories config file to use.
+
+    Priority:
+    1. categories.yaml (user's custom config, gitignored)
+    2. categories.yaml.example (template/fallback)
+
+    Returns:
+        Path to the config file to use
+
+    Raises:
+        FileNotFoundError: If no config file exists
+    """
+    config_dir = Path(__file__).parent
+
+    # Priority 1: User's custom categories.yaml
+    custom_config = config_dir / "categories.yaml"
+    if custom_config.exists():
+        return custom_config
+
+    # Priority 2: Example file (template/fallback)
+    example_config = config_dir / "categories.yaml.example"
+    if example_config.exists():
+        logger.warning(
+            "Using categories.yaml.example - copy it to categories.yaml and customize your categories"
+        )
+        return example_config
+
+    raise FileNotFoundError(
+        "No categories configuration found.\n"
+        "Please copy config/categories.yaml.example to config/categories.yaml"
+    )
+
+
+# Determine which config file to use
+_CONFIG_FILE = _get_config_file()
 
 
 def _load_config() -> dict:
@@ -26,15 +61,9 @@ def _load_config() -> dict:
         Dictionary with 'categories' and 'keyword_rules' keys
 
     Raises:
-        FileNotFoundError: If categories.yaml doesn't exist
+        FileNotFoundError: If config file doesn't exist
         yaml.YAMLError: If YAML is malformed
     """
-    if not _CONFIG_FILE.exists():
-        raise FileNotFoundError(
-            f"Configuration file not found: {_CONFIG_FILE}\n"
-            "Please create categories.yaml in the config directory."
-        )
-
     with open(_CONFIG_FILE, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
 
