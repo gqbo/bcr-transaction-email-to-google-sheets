@@ -57,7 +57,7 @@ class TestTransactionCreation:
             detalle="Juan Perez / Pago alquiler",
             referencia="789456123",
             moneda="COLON COSTA RICA",
-            tarjeta="3822"
+            tarjeta="SINPEMOVIL"
         )
 
         assert tx.type == "sinpe_debit"
@@ -73,7 +73,7 @@ class TestTransactionCreation:
             detalle="Maria Lopez / Transferencia",
             referencia="456789123",
             moneda="COLON COSTA RICA",
-            tarjeta="3822"
+            tarjeta="SINPEMOVIL"
         )
 
         assert tx.type == "sinpe_credit"
@@ -196,7 +196,7 @@ class TestTransactionComputedProperties:
             detalle="Transfer",
             referencia="123456",
             moneda="CRC",
-            tarjeta="3822"
+            tarjeta="SINPEMOVIL"
         )
         assert tx.is_income is True
         assert tx.is_expense is False
@@ -339,7 +339,7 @@ class TestTransactionConversion:
             "detalle": "Juan Perez / Pago alquiler",
             "referencia": "789456123",
             "moneda": "COLON COSTA RICA",
-            "tarjeta": "3822"
+            "tarjeta": "SINPEMOVIL"
         }
 
         tx = Transaction.from_dict(data)

@@ -40,7 +40,7 @@ class Transaction:
         detalle: Human-readable description for display
         referencia: Bank reference number
         moneda: Currency ("COLON COSTA RICA", "US DOLLAR")
-        tarjeta: Last 4 digits of card or account identifier ("3822" for SINPE)
+        tarjeta: Last 4 digits of card or account identifier ("SINPEMOVIL" for SINPE)
 
     Example:
         >>> tx = Transaction(

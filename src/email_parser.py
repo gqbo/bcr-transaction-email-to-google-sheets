@@ -187,7 +187,7 @@ def _parse_sinpe_email(html_content: str, email_type: str) -> Optional[Dict[str,
         "detalle": detalle,
         "referencia": referencia,
         "moneda": "COLON COSTA RICA",  # SINPE is always in colones
-        "tarjeta": "3822"  # Fixed SINPE account identifier
+        "tarjeta": "SINPEMOVIL"  # SINPE mobile transaction identifier
     }
 
 
