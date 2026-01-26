@@ -8,12 +8,13 @@ using the Google Sheets API.
 import os
 import json
 import logging
-import time
 from typing import Dict, List, Optional, Tuple
 
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+
+from src.utils.retry import retry_operation
 
 logger = logging.getLogger(__name__)
 
@@ -247,6 +248,9 @@ class SheetsWriter:
         """
         Append a single row to a specific sheet with retry logic.
 
+        Uses the retry_operation utility to handle transient failures
+        with automatic backoff.
+
         Args:
             row: List of values to append
             sheet_name: Name of the sheet to append to (e.g., '01/2026')
@@ -254,69 +258,48 @@ class SheetsWriter:
         Returns:
             Tuple of (success: bool, row_number: Optional[int])
         """
-        # Build range with sheet name (e.g., '01/2026'!A:E)
         sheet_range = f"'{sheet_name}'!{self.sheet_range}"
 
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                body = {'values': [row]}
+        def do_append():
+            """The actual append operation."""
+            body = {'values': [row]}
 
-                result = self.service.spreadsheets().values().append(
-                    spreadsheetId=self.spreadsheet_id,
-                    range=sheet_range,
-                    valueInputOption='RAW',
-                    insertDataOption='INSERT_ROWS',
-                    body=body
-                ).execute()
+            result = self.service.spreadsheets().values().append(
+                spreadsheetId=self.spreadsheet_id,
+                range=sheet_range,
+                valueInputOption='RAW',
+                insertDataOption='INSERT_ROWS',
+                body=body
+            ).execute()
 
-                # Extract update info
-                updates = result.get('updates', {})
-                updated_rows = updates.get('updatedRows', 0)
-                updated_range = updates.get('updatedRange', '')
+            # Extract update info
+            updates = result.get('updates', {})
+            updated_rows = updates.get('updatedRows', 0)
+            updated_range = updates.get('updatedRange', '')
 
-                if updated_rows > 0:
-                    # Extract row number from range (e.g., "Sheet1!A5:F5" -> 5)
-                    row_number = self._extract_row_number(updated_range)
-                    logger.info(
-                        f"Successfully appended row {row_number}: "
-                        f"{row[3]} - {row[4]}"  # merchant - category
-                    )
-                    return True, row_number
+            return updated_rows, updated_range
 
-                logger.warning("Append succeeded but no rows reported as updated")
-                return True, None
+        result = retry_operation(
+            operation=do_append,
+            max_retries=MAX_RETRIES,
+            base_delay=RETRY_DELAY
+        )
 
-            except HttpError as e:
-                status_code = e.resp.status
-                if status_code == 403:
-                    logger.error("Permission denied - check Sheet sharing settings")
-                    return False, None
-                elif status_code == 404:
-                    logger.error(f"Spreadsheet not found: {self.spreadsheet_id}")
-                    return False, None
-                elif status_code == 429:
-                    # Rate limit - wait and retry
-                    logger.warning(f"Rate limited, attempt {attempt}/{MAX_RETRIES}")
-                    if attempt < MAX_RETRIES:
-                        time.sleep(RETRY_DELAY * attempt)
-                        continue
-                else:
-                    logger.error(f"HTTP error {status_code}: {e}")
+        if result.success:
+            updated_rows, updated_range = result.value
+            if updated_rows > 0:
+                row_number = self._extract_row_number(updated_range)
+                logger.info(
+                    f"Successfully appended row {row_number}: "
+                    f"{row[3]} - {row[2]}"  # detalle - category
+                )
+                return True, row_number
 
-                if attempt < MAX_RETRIES:
-                    time.sleep(RETRY_DELAY * attempt)
-                    continue
-                return False, None
-
-            except Exception as e:
-                logger.error(f"Unexpected error appending row: {e}")
-                if attempt < MAX_RETRIES:
-                    time.sleep(RETRY_DELAY * attempt)
-                    continue
-                return False, None
-
-        logger.error(f"All {MAX_RETRIES} attempts failed to append row")
-        return False, None
+            logger.warning("Append succeeded but no rows reported as updated")
+            return True, None
+        else:
+            logger.error(f"Failed to append row after {result.attempts} attempts: {result.error}")
+            return False, None
 
     def _extract_row_number(self, range_str: str) -> Optional[int]:
         """
@@ -342,6 +325,9 @@ class SheetsWriter:
         """
         Append multiple rows to a sheet in a single API call.
 
+        Uses the retry_operation utility to handle transient failures
+        with automatic backoff.
+
         Args:
             rows: List of row data (each row is a list of cell values)
             sheet_name: Name of the sheet to append to (e.g., '01/2026')
@@ -354,63 +340,45 @@ class SheetsWriter:
 
         sheet_range = f"'{sheet_name}'!{self.sheet_range}"
 
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                body = {'values': rows}
+        def do_batch_append():
+            """The actual batch append operation."""
+            body = {'values': rows}
 
-                result = self.service.spreadsheets().values().append(
-                    spreadsheetId=self.spreadsheet_id,
-                    range=sheet_range,
-                    valueInputOption='RAW',
-                    insertDataOption='INSERT_ROWS',
-                    body=body
-                ).execute()
+            result = self.service.spreadsheets().values().append(
+                spreadsheetId=self.spreadsheet_id,
+                range=sheet_range,
+                valueInputOption='RAW',
+                insertDataOption='INSERT_ROWS',
+                body=body
+            ).execute()
 
-                updates = result.get('updates', {})
-                updated_rows = updates.get('updatedRows', 0)
-                updated_range = updates.get('updatedRange', '')
+            updates = result.get('updates', {})
+            updated_rows = updates.get('updatedRows', 0)
+            updated_range = updates.get('updatedRange', '')
 
-                if updated_rows > 0:
-                    start_row = self._extract_row_number(updated_range)
-                    logger.info(
-                        f"Batch appended {updated_rows} rows to '{sheet_name}' "
-                        f"starting at row {start_row}"
-                    )
-                    return True, start_row
+            return updated_rows, updated_range
 
-                logger.warning("Batch append succeeded but no rows reported as updated")
-                return True, None
+        result = retry_operation(
+            operation=do_batch_append,
+            max_retries=MAX_RETRIES,
+            base_delay=RETRY_DELAY
+        )
 
-            except HttpError as e:
-                status_code = e.resp.status
-                if status_code == 403:
-                    logger.error("Permission denied - check Sheet sharing settings")
-                    return False, None
-                elif status_code == 404:
-                    logger.error(f"Spreadsheet not found: {self.spreadsheet_id}")
-                    return False, None
-                elif status_code == 429:
-                    logger.warning(f"Rate limited, attempt {attempt}/{MAX_RETRIES}")
-                    if attempt < MAX_RETRIES:
-                        time.sleep(RETRY_DELAY * attempt)
-                        continue
-                else:
-                    logger.error(f"HTTP error {status_code}: {e}")
+        if result.success:
+            updated_rows, updated_range = result.value
+            if updated_rows > 0:
+                start_row = self._extract_row_number(updated_range)
+                logger.info(
+                    f"Batch appended {updated_rows} rows to '{sheet_name}' "
+                    f"starting at row {start_row}"
+                )
+                return True, start_row
 
-                if attempt < MAX_RETRIES:
-                    time.sleep(RETRY_DELAY * attempt)
-                    continue
-                return False, None
-
-            except Exception as e:
-                logger.error(f"Unexpected error in batch append: {e}")
-                if attempt < MAX_RETRIES:
-                    time.sleep(RETRY_DELAY * attempt)
-                    continue
-                return False, None
-
-        logger.error(f"All {MAX_RETRIES} attempts failed for batch append")
-        return False, None
+            logger.warning("Batch append succeeded but no rows reported as updated")
+            return True, None
+        else:
+            logger.error(f"Batch append failed after {result.attempts} attempts: {result.error}")
+            return False, None
 
     def batch_append(
         self,
