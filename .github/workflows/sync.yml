@@ -2,8 +2,8 @@ name: BCR Bank Email Sync
 
 on:
   schedule:
-    # Runs at 00:00 and 12:00 UTC daily
-    - cron: '0 0,12 * * *'
+    # Testing: runs every 7 minutes (change back to '0 0,12 * * *' after testing)
+    - cron: '*/7 * * * *'
 
   # Allow manual trigger for testing
   workflow_dispatch:
