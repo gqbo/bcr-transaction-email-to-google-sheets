@@ -10,14 +10,10 @@ Automatically sync BCR bank transaction emails to Google Sheets with AI-powered 
 ## Quick Start
 
 1. **Fork** this repository
-2. **Copy config:**
-   ```bash
-   cp config/categories.yaml.example config/categories.yaml
-   ```
-3. **Customize** categories in `config/categories.yaml`
-4. **Get credentials** (see setup below)
-5. **Add GitHub secrets**
-6. **Set up cron-job.org**
+2. **Customize** categories in `config/categories.yaml`
+3. **Get credentials** (see setup below)
+4. **Add GitHub secrets**
+5. **Set up cron-job.org**
 
 ---
 
@@ -98,7 +94,7 @@ GitHub Actions scheduled workflows are unreliable. Use [cron-job.org](https://cr
 
 When the main repo updates:
 1. Click "Sync fork" on GitHub
-2. Your `categories.yaml` won't be affected (it's gitignored)
+2. Resolve any conflicts in `categories.yaml` if you've customized it
 
 ---
 

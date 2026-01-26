@@ -6,9 +6,6 @@ token.json
 .env.local
 *.key
 
-# User-specific categories (prevents merge conflicts on fork sync)
-config/categories.yaml
-
 # Python
 __pycache__/
 *.py[cod]
