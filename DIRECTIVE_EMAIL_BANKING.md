@@ -762,15 +762,19 @@ DO NOT implement automated tests yet.
 If someone wants to use this system:
 
 1. **Fork**: Fork the repository on GitHub
-2. **Credentials**: Generate their own `credentials.json` and `token.json`
-3. **Secrets**: Add their own values to GitHub Secrets
-4. **Customize**: Adjust search query and categories if needed
-5. **Done**: System runs independently and free
+2. **Categories**: Copy `config/categories.yaml.example` to `config/categories.yaml` and customize
+3. **Credentials**: Generate their own `credentials.json` and `token.json`
+4. **Secrets**: Add their own values to GitHub Secrets
+5. **Cron**: Set up cron-job.org to trigger the workflow
+6. **Done**: System runs independently and free
+
+**Important:** `config/categories.yaml` is gitignored, so when you sync updates from the main repo, your custom categories won't be overwritten!
 
 Each user has their own:
 - Google Cloud project
 - Gmail authentication
 - Google Sheet
+- Category configuration
 - GitHub Actions execution quota
 
 **Result**: Infinite users, zero marginal cost, zero shared infrastructure.
